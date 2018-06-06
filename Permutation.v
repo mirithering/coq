@@ -3,16 +3,13 @@ Require Import Coq.Program.Basics.
 Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
 
-From mathcomp.ssreflect Require Import ssreflect ssrbool.
-
-Add LoadPath "/home/miri/coq".
 Require Import Group.
 
-Section permDef.
+Section Permutation.
 
 Variable A : Set.
 
-Axiom atDec : forall (a b : A), decidable (a = b).
+Axiom atDec : forall (a b : A), {a = b} + {a <> b}.
 
 Class Permutation (f : A -> A) (g : A -> A):= {
   permInvRight : forall a : A, f (g a) = a;
@@ -26,14 +23,14 @@ Proof.
   intros. destruct p1, p2. inversion H. subst; auto.
 Qed.*)
 
-Instance permInverse f {g} {P : Permutation f g} : Permutation g f.
+Instance permInverse f g {P : Permutation f g} : Permutation g f.
 Proof.
   constructor.
   - destruct P. auto.
   - destruct P. auto.
 Defined.
 
-Instance permCompose f1 f2 {g1 g2} `{Permutation f1 g1} `{Permutation f2 g2} : 
+Instance permCompose f1 g1 f2 g2 `{Permutation f1 g1} `{Permutation f2 g2} : 
     Permutation (compose f1 f2) (compose g2 g1).
 Proof.
   constructor.
@@ -43,6 +40,12 @@ Defined.
 
 (* Remove those two instances from inference to avoid loops in instance search *)
 Remove Hints permInverse permCompose : typeclass_instances.
+
+Corollary permInverseInvolutive f g (P : Permutation f g) : 
+  @permInverse g f (permInverse f g) = P.
+Proof.
+  apply permUnique.
+Qed.
 
 Instance permId : Permutation id id.
 Proof.
@@ -54,6 +57,18 @@ Defined.
 (** Permutations form a Group *)
 
 Inductive permType : Set := | C : forall f g, Permutation f g -> permType.
+
+Definition getPermutation (p : permType) : A -> A.
+  destruct p. apply f.
+Defined.
+
+Coercion getPermutation : permType >-> Funclass.
+
+Lemma permTypeUnique : forall f1 g1 f2 g2 p1 p2, f1 = f2 
+  -> g1 = g2 -> C f1 g1 p1 = C f2 g2 p2.
+Proof.
+  intros. subst. apply f_equal. apply permUnique.
+Qed.
 
 Definition permTypeId : permType := C id id permId.
 Definition permTypeInv : permType -> permType.
@@ -67,33 +82,15 @@ Defined.
 Instance Sym : Group permType permTypeId permTypeInv permTypeCompose.
 Proof.
   constructor; unfold permTypeCompose, permTypeId, permTypeInv.
-  -  intros [f1 g1 P1] [f2 g2 P2] [f3 g3 P3].
-     apply f_equal. apply permUnique.
-  - intros [f g P]. apply f_equal. apply permUnique.
-  - intros [f g P]. apply f_equal. apply permUnique.
-  - intros [f g P].
-    assert (compose g f = id).
-    extensionality a. apply permInvLeft.
-    assert (Permutation id id = Permutation (compose g f) (compose g f)).
-    rewrite H. reflexivity.
-    assert(permCompose g f = permId).
-  - intros [f g P]. unfold permTypeCompose, permTypeId. apply f_equal. apply permUnique.
-  -
-    apply proofIrrelevancePerm. reflexivity.
-  - intros [f g P1 P2]. apply proofIrrelevancePerm. reflexivity.
-  - intros [f g P1 P2]. apply proofIrrelevancePerm. reflexivity.
-  - intros [f g P1 P2]. apply proofIrrelevancePerm. assumption.
-  - intros [f g P1 P2]. apply proofIrrelevancePerm. assumption.
+  - intros [f1 g1 P1] [f2 g2 P2] [f3 g3 P3].
+    apply permTypeUnique; reflexivity.
+  - intros [f g P]. apply permTypeUnique; reflexivity.
+  - intros [f g P]. apply permTypeUnique; reflexivity.
+  - intros [f g P]. apply permTypeUnique; extensionality a; apply permInvLeft.
+  - intros [f g P]. apply permTypeUnique; extensionality a; apply permInvRight.
 Defined.
 
-(* All properties of groups are transferrable, for example the following: *)
-
-Corollary inverseMultPerm (p1 p2 : Permutation) : permInverse (permCompose p1 p2) =
-  permCompose (permInverse p2) (permInverse p1).
-Proof.
-  pose proof (inverseMult _ p1 p2).
-  apply H.
-Qed.
+Local Open Scope group_scope.
 
 (** Finite Permutations *)
 
@@ -104,21 +101,22 @@ Require Import List.
 
 Definition isFinite (p : A -> Prop) := exists l : list A, forall a, p a -> In a l.
 
-Class FinPerm := {
-  perm :> Permutation;
-  finite : isFinite (fun a => perm a <> a);
+Class FinPerm (f : A -> A) (g : A -> A) := {
+  perm :> Permutation f g;
+  finite : isFinite (fun a => f a <> a);
 }.
 
-Definition getFinPerm (F : FinPerm) := (@f (@perm F)).
-Coercion getFinPerm: FinPerm >-> Funclass.
+Axiom finiteUnique : forall (p : A -> Prop) (H1 : isFinite p) (H2 : isFinite p),
+  H1 = H2.
 
-Axiom proofIrrelevanceFinPerm : forall (P1 P2 : FinPerm), (@perm P1) = (@perm P2) -> P1 = P2.
-
-Corollary finPermEq : forall p1 p2, p1 = p2 -> @perm p1 = @perm p2.
+Lemma finPermUnique : forall f g (P1 : FinPerm f g) (P2 : FinPerm f g), P1 = P2.
 Proof.
-  intros. destruct p1, p2. inversion H. auto.
+  intros f g [P1 F1] [P2 F2].
+  assert (P1 = P2) by apply permUnique.
+  subst. assert (F1 = F2) by apply finiteUnique.
+  apply f_equal. apply H.
 Qed.
-
+(*
 Lemma permIdIsFinite : isFinite (fun a => (permId a) <> a).
 Proof with auto.
   exists nil. intros a []...
@@ -189,4 +187,6 @@ Module permNotation.
 
 Notation "g '•' x" := (@action (Perm _) _ g x) (at level 29, left associativity).
 
-End permNotation.
+End permNotation.*)
+
+End Permutation.
