@@ -8,36 +8,36 @@ Require Import Coq.Program.Basics.
 
 Require Import Coq.Logic.Classical_Prop.
 
-Generalizable All Variables.
-Set Implicit Arguments.
-
 Section Nominal.
 
 Parameter At : Set.
 
 (* Equality on atoms is decidable *)
 
-Axiom dec : forall a1 a2 : At, {a1 = a2} + {a1 <> a2}.
+Axiom atEqDec : forall a1 a2 : At, {a1 = a2} + {a1 <> a2}.
+
+Local Open Scope group_scope.
+
+Definition PermA_Set X action :=  GSet (finPermType At) X (Perm At) action.
+
+Set Typeclasses Debug.
 
 (* A nominal set is a perm A - set in which every element has finite support *)
 
-Import permNotation.
-
-Definition isSupport (X : GSet (Perm At)) (x : X) (s : At -> Prop) :=
-  forall p : (Perm At), (forall a : At, s a -> p a = a) -> p • x = x.
+Definition isSupport {X action} {G : PermA_Set X action} (x : X) (s : At -> Prop) :=
+  forall p : finPermType At, (forall a : At, s a -> p a = a) -> p • x = x.
 
 (* The support of an element of a Perm At-set is defined to be the
-  intersection of all supports, i.e. a is in supp, it is in all supports *)
+  intersection of all supports, i.e. if a is in supp, it is in all supports *)
 
-Inductive supp (X : GSet (Perm At)) (x : X) (a : At) : Prop := 
-  | intersect: (forall (s : At -> Prop), isSupport X x s -> s a) -> supp X x a.
+Inductive supp {X} `{GSet (finPermType At) X} (x : X) (a : At) : Prop := 
+  | intersect: (forall (s : At -> Prop), isSupport x s -> s a) -> supp x a.
 
-Import groupNotations.
-
-Lemma suppSwap : forall (X : GSet (Perm At)) (x : X) (S : At -> Prop),
-  isSupport X x S <-> (forall a1 a2, ~ S a1 -> ~ S a2 -> (swapFinPerm a1 a2) • x = x).
+Lemma suppSwap : forall X `{GSet (finPermType At) X} (x : X) (S : At -> Prop),
+  isSupport x S <-> (forall a1 a2, ~ S a1 -> ~ S a2 -> 
+  (exist _ ((swap At a1 a2), (swap At a1 a2)) (swapFinPerm At a1 a2)) • x = x).
 Proof with (subst; (try contradiction); auto).
-  intros X x S. split.
+  intros. split.
   - intros I a1 a2 N1 N2.
     apply I. intros a N3.
     compute. destruct (atDec a a1)... destruct (atDec a a2)...

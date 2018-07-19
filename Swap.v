@@ -1,6 +1,6 @@
 Require Import Permutation.
 Require Import Coq.Logic.FunctionalExtensionality.
-Require Import Utf8.
+Require Import Utf8 Omega.
 Require Import Coq.Program.Basics.
 Require Import Coq.Lists.List.
 Require Import Coq.Init.Wf.
@@ -90,7 +90,6 @@ Proof.
   - apply swapSelfInverse'.
 Defined.
 
-Local Open Scope list_scope.
 Import ListNotations.
 
 Instance swapFinPerm (a1 a2 : At) : 
@@ -114,34 +113,37 @@ Defined.
 Fixpoint swapList (l : list (At * At)) (a : At) : At :=
   match l with
     | [] => a
-    | (a1, a2) :: l' => swapList l' (swap a1 a2 a)
+    | (a1, a2) :: l' => swap a1 a2 (swapList l' a)
   end.
 
-Corollary swapListComp : forall a1 a2 l1 l2 a, swapList l2 (swapList (l1 ++ [(a1, a2)]) a) =
-  swapList ((a1, a2) :: l2) (swapList l1 a).
-Proof. induction l1.
+Corollary swapList_cons: 
+  forall a1 a2 l1 l2 a, swapList l2 (swapList ((a1, a2) :: l1) a) =
+    swapList (l2 ++ [(a1, a2)]) (swapList l1 a).
+Proof. induction l2.
   - simpl. reflexivity.
-  - intros. destruct a. simpl. rewrite IHl1. reflexivity.
+  - intros. destruct a. simpl. rewrite <- IHl2. reflexivity.
 Qed.
 
-Corollary swapListApp : forall l1 l2 a, swapList (l1 ++ l2) a = swapList l2 ((swapList l1) a).
+Corollary swapList_app: forall l1 l2 a, swapList (l1 ++ l2) a = 
+  swapList l1 ((swapList l2) a).
 Proof.
   induction l1.
-  - reflexivity.
+  - simpl. reflexivity.
   - intros. destruct a as [a1 a2]. simpl. rewrite IHl1. reflexivity.
 Qed.
 
-Instance swapListPerm (l : list (At * At)) : Permutation At (swapList l) (swapList (rev l)):= {}.
+Instance swapListPerm (l : list (At * At)) : 
+  Permutation At (swapList l) (swapList (rev l)):= {}.
 Proof.
   - induction l.
     + reflexivity.
     + intros a0. destruct a as [a1 a2].
       replace (rev ((a1, a2) :: l)) with ((rev l) ++ [(a1, a2)]) by reflexivity.
-      rewrite swapListComp. simpl. rewrite swapSelfInverse'. apply IHl.
+      rewrite swapList_app. simpl. rewrite IHl. apply swapSelfInverse'.
   - induction l.
     + reflexivity.
     + intros. destruct a as [a1 a2]. simpl. 
-      rewrite swapListApp. simpl. rewrite IHl. apply swapSelfInverse'.
+      rewrite swapList_app. simpl. rewrite swapSelfInverse'. apply IHl. 
 Defined.
 
 Instance swapListFinPerm (l : list (At * At)) : FinPerm At (swapList l) (swapList (rev l)):= {
@@ -152,10 +154,9 @@ Proof with (subst; auto).
   intros a Ineq. generalize dependent a. induction l; intros.
   - simpl in Ineq. contradiction.
   - destruct a as [a1 a2]. simpl in *. destruct (eqAtDec a1 a0), (eqAtDec a2 a0)...
-    right; right. apply IHl. rewrite swapCasesNone in Ineq...
+    right; right. apply IHl. intros C. rewrite C in Ineq. 
+    apply Ineq. apply swapCasesNone...
 Defined.
-
-Require Import Coq.omega.Omega.
 
 Definition lengthOrder := (fun (l1 l2 : list At) => length l1 < length l2).
 
@@ -168,133 +169,87 @@ Proof with (subst; auto).
     + constructor. intros l3 L3. apply IHn. omega.
 Qed.
 
-Lemma permutationToSwaps : forall f g `(FinPerm At f g), exists (l : list (At * At)), 
-  f = swapList l
-   /\ (forall a a', In (a, a') l -> (a <> a' /\ f a <> a /\ f a' <> a' /\ f a <> f a'))
-   /\ (NoDup (fold_right (fun p l2 => match p with (a1, a2) =>  a1 :: a2 :: l2 end) [] l)).
+Definition swapList_noDup (l : list (At * At)) := 
+  (NoDup (fold_right (fun p l2 => match p with (a1, a2) =>  a1 :: a2 :: l2 end) [] l)).
+
+Definition swapList_useful (p : finPermType At) (l : list (At * At)) :=
+  (forall a a', In (a, a') l -> (a <> a' /\ p a <> a /\ p a' <> a' /\ p a <> p a')).
+
+Lemma permutationToSwaps : forall p : finPermType At, exists (l : list (At * At)), 
+  getFinPermFunction  p = swapList l /\ swapList_noDup l /\ swapList_useful p l.
 Proof with (subst; auto).
-  intros f g [P [l I]]. generalize dependent g. generalize dependent f. generalize dependent l.
-
-  apply (@well_founded_ind (list At) lengthOrder wellFoundedLeq
-    (fun l => 
-      ∀ (f : At → At),(∀ a : At, f a ≠ a → In a l) → ∀ g : At → At, Permutation At f g
-        → ∃ l0 : list (At * At), 
-          f = swapList l0
-           ∧ (∀ a a' : At, In (a, a') l0  → a ≠ a' ∧ f a ≠ a ∧  f a' ≠ a' ∧ f a ≠ f a')
-           ∧ NoDup (fold_right (λ (p : At * At) (l2 :  list At), let (a1, a2) := p in a1 :: a2 :: l2) [] l0))).
-
-  - intros l H f I g P. destruct l.
+  intros [[f g] [P [l I]]]. simpl. 
+  generalize dependent f. generalize dependent g. generalize dependent l. simpl.
+  
+  apply (@well_founded_ind (list At) lengthOrder wellFoundedLeq 
+   (fun l => 
+      forall (g f : At → At) (P : Permutation At f g) (I : ∀ a : At, f a ≠ a → In a l), 
+          ∃ l0 : list (At * At), f = swapList l0
+            ∧ swapList_noDup l0
+            ∧ swapList_useful (exist (λ p : (At → At) * (At → At), 
+              FinPerm At (fst p) (snd p)) (f, g) {| perm := P; 
+                finite := ex_intro 
+                  (λ l1 : list At, ∀ a : At, f a ≠ a → In a l1) l I |}) l0)).
+  - intros l H g f P I. destruct l.
+    (* Base case *)
     + exists nil. split; try split...
       * extensionality a. destruct (eqAtDec (f a) a); auto. apply I in n. inversion n.
       * constructor.
-    + remember (compose f (swap a (g a))) as f' eqn:F'.
+      * intros a a' IA. simpl. inversion IA.
+    (* Induction step *)
+    + (* This will be the reduced permutation *)
+      remember (compose f (swap a (g a))) as f' eqn:F'.
 
+      (* Firt prove three auxiliary facts *)
       assert (f' a = a). { 
-        subst. unfold compose. swapCases. rewrite swapCasesFirst... pose proof comp1.
-      replace (p (pi a)) with ((compose p pi) a ) by reflexivity. rewrite H0... }
-      assert (forall a', a' <> a -> p a' = a' -> p' a' = a').
-      { intros a' IA PA. rewrite P'. simpl in *. destruct (atDec (pi a) a').
-        { subst. unfold compose. exfalso. apply IA. rewrite <- PA. replace (p (pi a)) with ((compose p pi) a)...
-          rewrite comp1... }
-        { unfold compose. rewrite swapCasesNone... }
+        subst. unfold compose. swapCases. apply permInvRight. apply P. }
+
+      assert (forall a', a' <> a -> f a' = a' -> f' a' = a').
+      { intros a' IA PA. rewrite F'. autounfold. simpl in *. 
+        destruct (eqAtDec a' (g a)).
+        { swapCases. subst. exfalso. apply IA. rewrite <- PA. rewrite permInvLeft...
+          apply permInverse. apply P. }
+        { swapCases. }
       }
 
-      specialize H with l f' (compose (swap a (g a)) g).
-      assert (lengthOrder l (a :: l)). { unfold lengthOrder. constructor. }
-      apply H in H0; clear H.
-
-      2 : { rewrite F'. unfold compose. intros a' H3.
-      specialize I with a'. simpl in I.
-      assert (a <> a'). { intros C. apply H3. rewrite C. swapCases. apply permInvRight... }
-      
-      assert (f a' <> a'). { intros C. subst. apply H. }
-      apply I in H5. destruct H5; try contradiction...
-    }
-     
-   
-    assert(∀ a0 : At, p' a0 ≠ a0 -> In a0 l1). 
-    { intros a' H3.
-      assert (a <> a'). { intros C... }
-      assert (p a' <> a'). { intros P... }
-      apply I in H5. destruct H5; try contradiction...
-    }
-    pose proof (H l1 H2 p' H3). destruct H4 as [t H4],H4 as [S Eq].
-    destruct (atDec a (pi a)).
-    * exists t. split ; (try split).
-      { apply proofIrrelevancePerm. simpl. extensionality b. 
-        apply permutationsEqual in S. simpl in S.
-        rewrite <- S. compute. rewrite P'. simpl.
-        rewrite <- e. rewrite swapId. compute. reflexivity. }
-      { intros a1 a2 IN. apply Eq in IN. destruct IN as [I1 [I2 I3]]. split...
-        simpl in *. rewrite <- e in I3, I2. rewrite swapId in I3, I2. compute in I3, I2. split... }
-      { destruct Eq as [Eq1 Eq2]. apply Eq2... }
-    * exists (((a, (pi a)) :: t)). split; try split.
-      { apply proofIrrelevancePerm. simpl. extensionality b.
-        apply permutationsEqual in S. simpl in S.
-        rewrite <- S. simpl. rewrite P'. simpl.
-        replace (compose p (swap a (pi a)) (swap a (pi a) b)) 
-          with (compose p (compose (swap a (pi a)) (swap a (pi a))) b) by reflexivity.
-        rewrite swapInvolutive. reflexivity. }
-      { intros a1 a2 IN. destruct IN.
-        { inversion H4. subst. split... split; try split.
-          { simpl in *. intros K. apply n. rewrite <- K at 2.
-            replace (pi (p a1)) with ((compose pi p) a1) by reflexivity. rewrite comp2. reflexivity. }
-          { intros C. apply n. rewrite <- C. simpl.
-            replace (p (pi a1)) with ((compose p pi) a1) by reflexivity. rewrite comp1... }
-          { simpl in *. replace (p (pi a1)) with ((compose p pi) a1) by reflexivity.
-            rewrite comp1. unfold id. intros C. apply n.
-            replace a1 with (id a1) at 1 by reflexivity. rewrite <- comp2. unfold compose. rewrite C...  }
-        }
-        { apply Eq in H4. destruct H4 as [A1 [A2 [A4 A5]]]. split... simpl in *. 
-          destruct (atDec a a1)... destruct (atDec a a2)...
-          split... split...
-          destruct (atDec (pi a) a1), (atDec (pi a) a2)...
-          { intros C. apply n2. replace a2 with (id a2) by reflexivity. rewrite <- comp2.
-            unfold compose. rewrite <- C. replace (p (pi a)) with (compose p pi a) by reflexivity.
-            rewrite comp1. reflexivity. }
-          { replace (p (pi a)) with (compose p pi a) by reflexivity. rewrite comp1. unfold id. intros C.
-            apply n2. rewrite <- C. replace (pi (p a1)) with (compose pi p a1) by reflexivity.
-            rewrite comp2... }
-          { unfold compose in A4, A2, A5. rewrite swapCasesNone in A4, A2, A5...
-            rewrite swapCasesNone in A5... }
-        }
-      }
-      { simpl. destruct Eq as [Eq1 Eq2]. rewrite NoDup_cons_iff. split.
-          intros In. destruct In...
-          assert (exists a', In (a, a') t). admit. (* wlog *)
-          inversion H5. apply Eq1 in H6. 
-          simpl in *. destruct H6, H7. apply H7.
-          unfold compose. rewrite swapCasesFirst... 
- replace (p (pi a)) with (compose p pi a) by reflexivity.
-          rewrite comp1...
-          constructor.
-          intros H4.
-          assert (exists a' : At, In (a, a') t). admit. (* wlog *)
-          inversion H5. apply Eq1 in H6. 
-          rewrite P' in *. simpl in *. destruct H6, H7. apply H7.
-          unfold compose. rewrite swapCasesFirst... 
- replace (p (pi a)) with (compose p pi a) by reflexivity.
-          rewrite comp1...
-          apply Eq2.
-          apply NoDup_cons_iff. split.
-          intros C. destruct C...
-          Focus 2.
-          apply Eq in C. destruct C as [C1 [C2 [C3 C4]]]. subst. simpl in *.
-          apply C2. unfold compose. rewrite swapCasesFirst...
-          replace (p (pi a)) with (compose p pi a) by reflexivity.
-          rewrite comp1...
-        }
-        { destruct Eq... }
-      }
+      assert (lengthOrder l (a :: l)) as L. { unfold lengthOrder. constructor. }
+      destruct (eqAtDec (g a) a).
+      * eapply H in L. clear H. destruct L as [l1 [IH1 [IH2 IH3]]].
+        unfold swapList_noDup in IH2. unfold swapList_useful in IH3. simpl in *.
+        exists l1. split; [apply IH1| clear IH1]. split...
+        Unshelve.
+        apply g. apply P.
+        intros. assert (a0 <> a). rewrite <- perm_inv_same_domain with (f := f) in e... 
+        intros C... apply I in H. destruct H. symmetry in H. contradiction. apply H.
+      * eapply H with (f := f') in L. clear H. destruct L as [l1 [IH1 [IH2 IH3]]].
+        exists (l1 ++ [(a, g a)]). split; try split.
+        { extensionality a'. rewrite swapList_app. rewrite <- IH1.
+          simpl. rewrite F'. unfold compose. rewrite swapSelfInverse'. reflexivity. }
+        { admit. }
+        { unfold swapList_useful in *. simpl in *. intros.
+          apply in_app_or in H. destruct H.
+          { admit. }
+          { destruct H; try inversion H.
+            split; repeat try split...
+            { rewrite perm_inv_same_domain'. apply n. apply P. }
+            { rewrite permInvLeft... apply permInverse... }
+            { rewrite permInvRight... rewrite perm_inv_same_domain'.
+              apply n. apply P. }
+          }
+        Unshelve. apply (compose (swap a (g a)) g). 
+        constructor. intros. subst. unfold compose. rewrite swapSelfInverse'.
+        apply permInvRight... intros. subst... unfold compose.
+        replace (g (f (swap a (g a) a0))) with ((swap a (g a) a0)).
+        apply swapSelfInverse'. rewrite permInvLeft...
+        intros. subst. assert (a <> a0). intros C. subst.
+        unfold compose in H. rewrite swapCasesFirst in H. apply H. apply permInvRight...
+        reflexivity. destruct (eqAtDec (g a) a0).
+        unfold compose in H. eapply perm_chain in e. 
+        rewrite perm_inv_same_domain' with (g := f) in e. apply I in e.
+        destruct e. contradiction. apply H3. apply permInverse...
+         apply permInverse. apply P. apply H2.
+        unfold compose in H. rewrite swapCasesNone in H...
+        apply I in H. destruct H. contradiction. apply H.
 Admitted.
-
-Lemma permutationToFinSwaps : forall (p : FinPerm At), exists (l : list (At * At)),
-  p = swapListFinPerm l
-   /\ (forall a a', In (a, a') l -> (a <> a' /\ p a <> a /\ p a' <> a' /\ p a <> p a') /\ (NoDup l)).
-Proof. intros. pose proof (permutationToSwaps p). destruct H as [l H]. exists l. split; try split.
-  - apply proofIrrelevanceFinPerm. destruct H. auto.
-  - destruct H, H1. auto.
-  - destruct H, H1. auto.
-Qed.
 
 End Swap.
